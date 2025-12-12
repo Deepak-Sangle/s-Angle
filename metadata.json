@@ -1,0 +1,5 @@
+{
+  "name": "MotionScript - Code to Video",
+  "description": "A browser-based motion graphics engine where you write TypeScript-like scripts to generate animations instantly. Powered by a custom frame-by-frame rendering engine and Gemini AI for script generation.",
+  "requestFramePermissions": []
+}
