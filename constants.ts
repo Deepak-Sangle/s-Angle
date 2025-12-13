@@ -1,62 +1,79 @@
-export const DEFAULT_SCRIPT = `// Geometry & Vectors Demo
+export const DEFAULT_SCRIPT = `// Math LaTeX Demo
 
-// 1. Setup Points
-const left = { x: 500, y: 800 };
-const right = { x: 1420, y: 800 };
-const peak = { x: 960, y: 300 };
-
-// 2. Create Base Line
-const base = scene.addLine({ 
-    p1: left, 
-    p2: right, 
-    thickness: 4, 
-    color: '#475569' // Slate color
+// 1. Setup the Identity
+const euler = scene.addMath({
+    latex: "e^{i\\pi} + 1 = 0",
+    x: 960,
+    y: 540,
+    color: '#38bdf8', // Light Blue
+    scale: 2.0,
+    opacity: 0
 });
 
-// 3. Create Vectors (Arrows) pointing to peak
-const vecA = scene.addArrow({ 
-    p1: left, 
-    p2: peak, 
-    thickness: 8, 
-    color: '#3b82f6', // Blue
-    opacity: 0 
-});
-
-const vecB = scene.addArrow({ 
-    p1: right, 
-    p2: peak, 
-    thickness: 8, 
-    color: '#ef4444', // Red
+const label = scene.addText({
+    text: "Euler's Identity",
+    x: 960,
+    y: 400,
+    fontSize: 40,
+    color: '#94a3b8',
     opacity: 0
 });
 
 scene.wait(0.5);
 
-// 4. Animate: Reveal Vectors
+// 2. Animate In
 scene.playTogether([
-    (s) => s.fadeIn(vecA, 1.0),
-    (s) => s.fadeIn(vecB, 1.0)
+    (s) => s.fadeIn(euler, 2.0),
+    (s) => s.scale(euler, 3.0, 2.0), // Scale up
+    (s) => s.fadeIn(label, 2.0),
+    (s) => s.moveBy(label, { x: 0, y: -50 }, 2.0)
 ]);
 
-// Label
-const label = scene.addText({ 
-    text: "Resultant", 
-    x: 960, 
-    y: 200, 
-    fontSize: 60, 
-    color: '#ffffff',
+scene.wait(1.0);
+
+// 3. Move and Change
+const integral = scene.addMath({
+    latex: "\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}",
+    x: 500,
+    y: 800,
+    color: '#ef4444', // Red
+    scale: 2.0,
     opacity: 0
 });
 
-scene.wait(0.2);
-
-// 5. Animate: Float Everything Up
 scene.playTogether([
-    (s) => s.fadeIn(label, 1.5),
-    (s) => s.moveBy(label, { x: 0, y: -50 }, 1.5),
-    (s) => s.moveBy(vecA, { x: 0, y: -100 }, 2.0),
-    (s) => s.moveBy(vecB, { x: 0, y: -100 }, 2.0),
-    (s) => s.moveBy(base, { x: 0, y: -100 }, 2.0)
+    // Move Euler top left
+    (s) => s.moveTo(euler, { x: 400, y: 300 }, 1.5),
+    (s) => s.scale(euler, 2.0, 1.5), // Shrink slightly
+    // Show Integral
+    (s) => s.fadeIn(integral, 1.5),
+    (s) => s.moveBy(integral, { x: 0, y: -100 }, 1.5)
+]);
+
+scene.wait(1.0);
+
+// 4. Typewriter & Shapes Demo
+const box = scene.addRect({
+    x: 1450, 
+    y: 850,
+    width: 600, 
+    height: 120,
+    color: '#1e293b', // Slate 800
+    opacity: 0
+});
+
+const code = scene.addText({
+    text: "const magic = scene.render();",
+    x: 1450,
+    y: 850,
+    fontSize: 32,
+    color: '#bef264', // Lime
+    opacity: 0 // Start invisible for typewriter
+});
+
+scene.playTogether([
+    (s) => s.fadeIn(box, 0.5),
+    (s) => s.typeWriter(code, 2.5)
 ]);
 `;
 

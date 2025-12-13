@@ -4,11 +4,13 @@ export enum ActionType {
     MOVE = 'MOVE',
     ARC = 'ARC',
     SCALE = 'SCALE',
+    RESIZE = 'RESIZE',
     COLOR = 'COLOR',
     FADE_OUT = 'FADE_OUT',
     FADE_IN = 'FADE_IN',
     COUNT = 'COUNT',
-    WAIT = 'WAIT'
+    WAIT = 'WAIT',
+    TYPEWRITER = 'TYPEWRITER'
 }
 
 export interface Vector2 {
@@ -18,7 +20,7 @@ export interface Vector2 {
 
 export interface VisualObject {
     id: string;
-    type: 'CIRCLE' | 'RECT' | 'TEXT' | 'LINE' | 'ARROW';
+    type: 'CIRCLE' | 'RECT' | 'TEXT' | 'LINE' | 'ARROW' | 'MATH';
     x: number;
     y: number;
     rotation: number;
@@ -31,6 +33,7 @@ export interface VisualObject {
     height?: number; // Used for Rect height, Line thickness
     text?: string;
     fontSize?: number;
+    latex?: string; // For MATH type
 }
 
 export interface Action {

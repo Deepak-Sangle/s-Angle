@@ -103,6 +103,33 @@ export class VideoContext {
         return id;
     }
 
+    addMath(props: { latex: string; x: number; y: number; scale?: number; color: string; opacity?: number }): string {
+        const id = this.generateId();
+        const obj: VisualObject = {
+            id,
+            type: 'MATH',
+            x: props.x,
+            y: props.y,
+            rotation: 0,
+            scale: props.scale ?? 1,
+            opacity: props.opacity ?? 1,
+            color: props.color,
+            latex: props.latex,
+        };
+        
+        this.initialObjects.set(id, { ...obj });
+        this.currentObjectStates.set(id, { ...obj });
+
+        this.actions.push({
+            id: this.generateId(),
+            type: ActionType.CREATE,
+            objectId: id,
+            startTime: this.currentTime,
+            duration: 0
+        });
+        return id;
+    }
+
     addLine(props: { p1: Vector2; p2: Vector2; thickness: number; color: string; opacity?: number }): string {
         const id = this.generateId();
         
@@ -225,6 +252,7 @@ export class VideoContext {
         this.currentTime += duration;
     }
 
+    // Transform Scale (Uniform)
     scale(id: string, factor: number, duration: number) {
         const current = this.currentObjectStates.get(id);
         if (!current) throw new Error(`Object ${id} not found`);
@@ -244,6 +272,71 @@ export class VideoContext {
         });
 
         current.scale = endVal;
+        this.currentTime += duration;
+    }
+
+    // Geometry Resize (Non-Uniform / Property based)
+    resize(id: string, target: number | { width?: number, height?: number, radius?: number, length?: number, thickness?: number }, duration: number) {
+        const current = this.currentObjectStates.get(id);
+        if (!current) throw new Error(`Object ${id} not found`);
+
+        const startVal: any = {};
+        const endVal: any = {};
+
+        if (current.type === 'CIRCLE') {
+            const r = typeof target === 'number' ? target : (target as any).radius;
+            if (r !== undefined) {
+                startVal.radius = current.radius;
+                endVal.radius = r;
+                current.radius = r;
+            }
+        } else if (current.type === 'RECT') {
+            const t = target as any;
+            if (typeof t === 'object') {
+                if (t.width !== undefined) {
+                    startVal.width = current.width;
+                    endVal.width = t.width;
+                    current.width = t.width;
+                }
+                if (t.height !== undefined) {
+                    startVal.height = current.height;
+                    endVal.height = t.height;
+                    current.height = t.height;
+                }
+            }
+        } else if (current.type === 'LINE' || current.type === 'ARROW') {
+            const t = target as any;
+            if (typeof t === 'object') {
+                 // Map length -> width, thickness -> height
+                 if (t.length !== undefined) {
+                     startVal.width = current.width;
+                     endVal.width = t.length;
+                     current.width = t.length;
+                 }
+                 if (t.thickness !== undefined) {
+                     startVal.height = current.height;
+                     endVal.height = t.thickness;
+                     current.height = t.thickness;
+                 }
+            } else if (typeof t === 'number') {
+                // Assume number on line means length change
+                startVal.width = current.width;
+                endVal.width = t;
+                current.width = t;
+            }
+        }
+
+        this.actions.push({
+            id: this.generateId(),
+            type: ActionType.RESIZE,
+            objectId: id,
+            startTime: this.currentTime,
+            duration,
+            startValue: startVal,
+            endValue: endVal,
+            easing: 'easeInOutCubic'
+        });
+        
         this.currentTime += duration;
     }
 
@@ -322,6 +415,28 @@ export class VideoContext {
         });
 
         current.text = String(endValue);
+        this.currentTime += duration;
+    }
+
+    typeWriter(id: string, duration: number) {
+        const current = this.currentObjectStates.get(id);
+        if (!current) throw new Error(`Object ${id} not found`);
+        if (current.type !== 'TEXT') throw new Error(`Object ${id} must be TEXT for typeWriter.`);
+
+        const fullText = current.text || '';
+
+        this.actions.push({
+            id: this.generateId(),
+            type: ActionType.TYPEWRITER,
+            objectId: id,
+            startTime: this.currentTime,
+            duration,
+            startValue: 0,
+            endValue: fullText, // Store the source text
+            easing: 'linear'
+        });
+
+        current.opacity = 1;
         this.currentTime += duration;
     }
 
@@ -421,6 +536,20 @@ export const renderSceneAtTime = (timeline: TimelineData, time: number): VisualO
                     obj.scale = action.startValue + (action.endValue - action.startValue) * easedT;
                 }
                 break;
+            case ActionType.RESIZE:
+                // Handle geometric resizing
+                const s = action.startValue;
+                const e = action.endValue;
+                if (s.radius !== undefined && e.radius !== undefined) {
+                    obj.radius = s.radius + (e.radius - s.radius) * easedT;
+                }
+                if (s.width !== undefined && e.width !== undefined) {
+                    obj.width = s.width + (e.width - s.width) * easedT;
+                }
+                if (s.height !== undefined && e.height !== undefined) {
+                    obj.height = s.height + (e.height - s.height) * easedT;
+                }
+                break;
             case ActionType.FADE_OUT:
                  if (typeof action.startValue === 'number' && typeof action.endValue === 'number') {
                     obj.opacity = action.startValue + (action.endValue - action.startValue) * easedT;
@@ -441,6 +570,15 @@ export const renderSceneAtTime = (timeline: TimelineData, time: number): VisualO
                     const val = action.startValue + (action.endValue - action.startValue) * easedT;
                     // Round to integer for standard counter effect
                     obj.text = Math.round(val).toString();
+                }
+                break;
+            case ActionType.TYPEWRITER:
+                // Ensure visibility
+                obj.opacity = 1;
+                const fullText = action.endValue;
+                if (typeof fullText === 'string') {
+                    const charCount = Math.floor(fullText.length * easedT);
+                    obj.text = fullText.substring(0, charCount);
                 }
                 break;
         }
