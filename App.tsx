@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Play, Pause, RefreshCw, Wand2, SkipBack, Info } from 'lucide-react';
 import CodeEditor from './components/CodeEditor';
 import CanvasPlayer from './components/CanvasPlayer';
-import { VideoContext, renderSceneAtTime } from './services/engine';
+import { VideoContext, renderSceneAtTime, Scenes } from './services/engine';
 import { generateScript } from './services/geminiService';
 import { DEFAULT_SCRIPT, CANVAS_WIDTH, CANVAS_HEIGHT } from './constants';
 import { TimelineData } from './types';
@@ -35,10 +35,10 @@ const App: React.FC = () => {
             const context = new VideoContext();
             
             // Safe-ish execution
-            // We create a Function that takes 'scene' as an argument
-            const runScript = new Function('scene', `"use strict";\n${script}`);
+            // We create a Function that takes 'scene' and 'Scenes' as arguments
+            const runScript = new Function('scene', 'Scenes', `"use strict";\n${script}`);
             
-            runScript(context);
+            runScript(context, Scenes);
             
             const data = context.getTimeline();
             setTimeline(data);
@@ -58,7 +58,6 @@ const App: React.FC = () => {
     // Initial Compile
     useEffect(() => {
         compile();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     // Animation Loop
@@ -106,13 +105,8 @@ const App: React.FC = () => {
         const newCode = await generateScript(aiPrompt);
         setScript(newCode);
         setIsGenerating(false);
-        // Automatically compile after generation (effect dependency will handle render if we compiled immediately, but let's let user click run or trigger compile manually? 
-        // Better UX: Auto compile logic is in effect hook if we added script dependency, but we removed it to avoid loops. 
-        // Let's trigger compile via a timeout or effect.)
     };
 
-    // Re-compile when script is updated by AI? No, let user review. 
-    // But if they clicked "Generate", they likely want to see it.
     useEffect(() => {
         if (!isGenerating && script !== DEFAULT_SCRIPT) {
              compile();
