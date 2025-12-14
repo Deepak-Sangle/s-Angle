@@ -24,6 +24,12 @@ export interface Vector2 {
     y: number;
 }
 
+export interface Vector3 {
+    x: number;
+    y: number;
+    z: number;
+}
+
 export interface GradientStop {
     offset: number; // 0 to 1
     color: string;
@@ -47,10 +53,18 @@ export type ColorProp = string | LinearGradient | RadialGradient;
 
 export interface VisualObject {
     id: string;
-    type: 'CIRCLE' | 'RECT' | 'TEXT' | 'LINE' | 'ARROW' | 'MATH' | 'IMAGE' | 'GROUP';
+    type: 'CIRCLE' | 'RECT' | 'TEXT' | 'LINE' | 'ARROW' | 'MATH' | 'IMAGE' | 'GROUP' | 'REGULAR_POLYGON' | 'POLYGON' | 'MATRIX';
+    
+    // Position 3D
     x: number;
     y: number;
-    rotation: number;
+    z: number; // Depth. Positive is closer (if we use standard right-hand) or further depending on projection. We will use: Positive Z is "into" screen for simplicity in user mind, or standard 3D? Let's use Standard: Z- is into screen, Z+ is out.
+    
+    // Rotation 3D (Euler angles in radians)
+    rotation: number; // Z-axis rotation (2D rotation)
+    rotationX: number;
+    rotationY: number;
+
     scale: number;
     opacity: number;
     color: ColorProp; // Main Fill / Text Color
@@ -81,6 +95,15 @@ export interface VisualObject {
     latex?: string; // For MATH type
     imageUrl?: string; // For IMAGE type
     lineDash?: number[]; // Array of dash lengths [dash, gap, dash, gap...]
+    
+    // Polygon props
+    sides?: number; // For REGULAR_POLYGON
+    points?: Vector2[]; // For POLYGON (relative to x,y)
+
+    // Matrix Props
+    matrixData?: (string | number)[][];
+    bracketStyle?: 'square' | 'round' | 'none';
+    cellSpacing?: Vector2;
 }
 
 export interface Action {

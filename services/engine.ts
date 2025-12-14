@@ -61,34 +61,6 @@ export const Scenes = {
         return { xAxis, yAxis };
     },
     
-    // Low-level single bar (kept for legacy/granular use)
-    BarGraph: (scene: VideoContext, width: number = 200, label: string = "Value", color: string = "#60a5fa") => {
-        const bar = scene.addRect({
-            x: 0, y: 0, width: width, height: 40,
-            color: color,
-            anchor: { x: 0, y: 0.5 },
-            borderRadius: 4
-        });
-        
-        const text = scene.addText({
-            text: label,
-            x: -20, y: 0, // Left of the bar
-            fontSize: 24,
-            color: '#e2e8f0',
-            anchor: { x: 1, y: 0.5 } // Right align
-        });
-        
-        const valueLabel = scene.addText({
-            text: Math.round(width).toString(),
-            x: width + 20, y: 0,
-            fontSize: 24,
-            color: '#94a3b8',
-            anchor: { x: 0, y: 0.5 }
-        });
-
-        return { bar, text, valueLabel };
-    },
-
     // High-level Bar Chart Container
     BarChart: (scene: VideoContext, items: BarChartItem[], config: BarChartConfig = {}) => {
         const width = config.width || 600;
@@ -169,7 +141,6 @@ export const Scenes = {
             const newWidth = (item.value / chart.config.maxVal) * chart.config.width;
             
             // 1. Resize Bar
-            // We set time, call update (which increments time), then reset time for next action
             scene.currentTime = baseTime + delay;
             scene.update(el.barId, { width: newWidth }, duration, 'easeOutCubic');
 
@@ -187,12 +158,46 @@ export const Scenes = {
 
         // Advance time by total duration + stagger
         scene.currentTime = baseTime + duration + Math.max(0, newData.length - 1) * stagger;
+    },
+
+    // 3D Cube Helper
+    Cube3D: (scene: VideoContext, size: number, color: string) => {
+        const half = size / 2;
+        // Create 6 faces as squares
+        // Front Face (z=-s/2)
+        const f = scene.addSquare({ x: 0, y: 0, size, color, opacity: 0.8, borderColor: 'rgba(255,255,255,0.5)', borderWidth: 1 });
+        scene.update(f, { z: -half });
+        
+        // Back Face (z=s/2)
+        const b = scene.addSquare({ x: 0, y: 0, size, color, opacity: 0.8, borderColor: 'rgba(255,255,255,0.5)', borderWidth: 1 });
+        scene.update(b, { z: half, rotationY: Math.PI });
+
+        // Left Face (x=-s/2, rotY=90)
+        const l = scene.addSquare({ x: 0, y: 0, size, color, opacity: 0.8, borderColor: 'rgba(255,255,255,0.5)', borderWidth: 1 });
+        scene.update(l, { x: -half, rotationY: -Math.PI/2 });
+        // The rotation pivot is center. If we rotate 90deg Y, the plane runs along Z. 
+        // But the "x" position is world X. So it sits at X=-half. Correct.
+
+        // Right Face (x=s/2, rotY=90)
+        const r = scene.addSquare({ x: 0, y: 0, size, color, opacity: 0.8, borderColor: 'rgba(255,255,255,0.5)', borderWidth: 1 });
+        scene.update(r, { x: half, rotationY: Math.PI/2 });
+
+        // Top Face (y=-s/2, rotX=90)
+        const t = scene.addSquare({ x: 0, y: 0, size, color, opacity: 0.8, borderColor: 'rgba(255,255,255,0.5)', borderWidth: 1 });
+        scene.update(t, { y: -half, rotationX: Math.PI/2 });
+
+        // Bottom Face (y=s/2, rotX=90)
+        const bot = scene.addSquare({ x: 0, y: 0, size, color, opacity: 0.8, borderColor: 'rgba(255,255,255,0.5)', borderWidth: 1 });
+        scene.update(bot, { y: half, rotationX: -Math.PI/2 });
+
+        return { front: f, back: b, left: l, right: r, top: t, bottom: bot };
     }
 };
 
 interface BaseProps {
     x: number;
     y: number;
+    z?: number;
     color?: ColorProp; // Defaults to white/transparent depending on object
     opacity?: number;
     anchor?: Vector2;
@@ -223,77 +228,92 @@ export class VideoContext {
         return target as string;
     }
 
-    // --- Nouns (Creation) ---
-
-    addCircle(props: BaseProps & { radius: number }): string {
-        const id = this.generateId();
-        const obj: VisualObject = {
-            id,
-            type: 'CIRCLE',
+    private createBaseObject(type: VisualObject['type'], props: BaseProps): VisualObject {
+        return {
+            id: this.generateId(),
+            type,
             x: props.x,
             y: props.y,
+            z: props.z || 0,
             rotation: 0,
+            rotationX: 0,
+            rotationY: 0,
             scale: 1,
             opacity: props.opacity ?? 1,
             color: props.color || '#ffffff',
-            radius: props.radius,
             anchor: props.anchor || { x: 0.5, y: 0.5 },
             shadowBlur: 0,
             shadowColor: 'transparent',
             backgroundColor: props.backgroundColor,
             borderColor: props.borderColor,
             borderWidth: props.borderWidth || 0,
-            borderRadius: 0 
+            borderRadius: props.borderRadius || 0
         };
-        
-        // Register initial state
-        this.initialObjects.set(id, { ...obj });
-        this.currentObjectStates.set(id, { ...obj });
+    }
 
-        // Implicit create action (instant)
+    private registerObject(obj: VisualObject) {
+        this.initialObjects.set(obj.id, { ...obj });
+        this.currentObjectStates.set(obj.id, { ...obj });
         this.actions.push({
             id: this.generateId(),
             type: ActionType.CREATE,
-            objectId: id,
+            objectId: obj.id,
             startTime: this.currentTime,
             duration: 0
         });
+        return obj.id;
+    }
 
-        return id;
+    // --- Nouns (Creation) ---
+
+    addCircle(props: BaseProps & { radius: number }): string {
+        const obj = this.createBaseObject('CIRCLE', props);
+        obj.radius = props.radius;
+        return this.registerObject(obj);
     }
 
     addRect(props: BaseProps & { width: number; height: number }): string {
-        const id = this.generateId();
-        const obj: VisualObject = {
-            id,
-            type: 'RECT',
-            x: props.x,
-            y: props.y,
-            rotation: 0,
-            scale: 1,
-            opacity: props.opacity ?? 1,
-            color: props.color || '#ffffff',
-            width: props.width,
-            height: props.height,
-            anchor: props.anchor || { x: 0.5, y: 0.5 },
-            shadowBlur: 0,
-            shadowColor: 'transparent',
-            backgroundColor: props.backgroundColor, // Usually unused for Rect as color=fill
-            borderColor: props.borderColor,
-            borderWidth: props.borderWidth || 0,
-            borderRadius: props.borderRadius || 0
-        };
-        this.initialObjects.set(id, { ...obj });
-        this.currentObjectStates.set(id, { ...obj });
-        
-        this.actions.push({
-            id: this.generateId(),
-            type: ActionType.CREATE,
-            objectId: id,
-            startTime: this.currentTime,
-            duration: 0
+        const obj = this.createBaseObject('RECT', props);
+        obj.width = props.width;
+        obj.height = props.height;
+        return this.registerObject(obj);
+    }
+
+    addSquare(props: BaseProps & { size: number }): string {
+        return this.addRect({
+            ...props,
+            width: props.size,
+            height: props.size
         });
-        return id;
+    }
+
+    addRegularPolygon(props: BaseProps & { radius: number, sides: number }): string {
+        const obj = this.createBaseObject('REGULAR_POLYGON', props);
+        obj.radius = props.radius;
+        obj.sides = props.sides;
+        return this.registerObject(obj);
+    }
+
+    addTriangle(props: BaseProps & { radius: number }): string {
+        return this.addRegularPolygon({ ...props, sides: 3 });
+    }
+
+    addPolygon(props: BaseProps & { points: Vector2[] }): string {
+        const obj = this.createBaseObject('POLYGON', props);
+        obj.points = props.points;
+        return this.registerObject(obj);
+    }
+
+    addRhombus(props: BaseProps & { width: number, height: number }): string {
+        const w = props.width / 2;
+        const h = props.height / 2;
+        const points = [
+            { x: 0, y: -h },
+            { x: w, y: 0 },
+            { x: 0, y: h },
+            { x: -w, y: 0 }
+        ];
+        return this.addPolygon({ ...props, points });
     }
 
     addText(props: BaseProps & { 
@@ -303,124 +323,39 @@ export class VideoContext {
         fontWeight?: string | number; 
         fontFamily?: string; 
     }): string {
-        const id = this.generateId();
-        const obj: VisualObject = {
-            id,
-            type: 'TEXT',
-            x: props.x,
-            y: props.y,
-            rotation: 0,
-            scale: 1,
-            opacity: props.opacity ?? 1,
-            color: props.color || '#ffffff',
-            text: props.text,
-            fontSize: props.fontSize,
-            fontStyle: props.fontStyle,
-            fontWeight: props.fontWeight,
-            fontFamily: props.fontFamily,
-            anchor: props.anchor || { x: 0.5, y: 0.5 },
-            shadowBlur: 0,
-            shadowColor: 'transparent',
-            backgroundColor: props.backgroundColor,
-            borderColor: props.borderColor,
-            borderWidth: props.borderWidth || 0,
-            borderRadius: props.borderRadius || 0
-        };
-        this.initialObjects.set(id, { ...obj });
-        this.currentObjectStates.set(id, { ...obj });
-
-        this.actions.push({
-            id: this.generateId(),
-            type: ActionType.CREATE,
-            objectId: id,
-            startTime: this.currentTime,
-            duration: 0
-        });
-        return id;
+        const obj = this.createBaseObject('TEXT', props);
+        obj.text = props.text;
+        obj.fontSize = props.fontSize;
+        obj.fontStyle = props.fontStyle;
+        obj.fontWeight = props.fontWeight;
+        obj.fontFamily = props.fontFamily;
+        return this.registerObject(obj);
     }
 
     addMath(props: BaseProps & { latex: string; scale?: number }): string {
-        const id = this.generateId();
-        const obj: VisualObject = {
-            id,
-            type: 'MATH',
-            x: props.x,
-            y: props.y,
-            rotation: 0,
-            scale: props.scale ?? 1,
-            opacity: props.opacity ?? 1,
-            color: props.color || '#ffffff',
-            latex: props.latex,
-            anchor: props.anchor || { x: 0.5, y: 0.5 },
-            shadowBlur: 0,
-            shadowColor: 'transparent',
-            backgroundColor: props.backgroundColor,
-            borderColor: props.borderColor,
-            borderWidth: props.borderWidth || 0,
-            borderRadius: props.borderRadius || 0
-        };
-        
-        this.initialObjects.set(id, { ...obj });
-        this.currentObjectStates.set(id, { ...obj });
-
-        this.actions.push({
-            id: this.generateId(),
-            type: ActionType.CREATE,
-            objectId: id,
-            startTime: this.currentTime,
-            duration: 0
-        });
-        return id;
+        const obj = this.createBaseObject('MATH', props);
+        obj.latex = props.latex;
+        obj.scale = props.scale ?? 1;
+        return this.registerObject(obj);
     }
 
     addLine(props: { p1: Vector2; p2: Vector2; thickness: number; color: string; opacity?: number }): string {
-        const id = this.generateId();
-        
-        // Calculate Center
         const cx = (props.p1.x + props.p2.x) / 2;
         const cy = (props.p1.y + props.p2.y) / 2;
-        
-        // Calculate Length (Width)
         const dx = props.p2.x - props.p1.x;
         const dy = props.p2.y - props.p1.y;
         const length = Math.sqrt(dx*dx + dy*dy);
-        
-        // Calculate Rotation
         const angle = Math.atan2(dy, dx);
 
-        const obj: VisualObject = {
-            id,
-            type: 'LINE',
-            x: cx,
-            y: cy,
-            rotation: angle,
-            scale: 1,
-            opacity: props.opacity ?? 1,
-            color: props.color,
-            width: length,
-            height: props.thickness,
-            anchor: { x: 0.5, y: 0.5 },
-            shadowBlur: 0,
-            shadowColor: 'transparent',
-            // Lines ignore borders/backgrounds for now
-        };
-
-        this.initialObjects.set(id, { ...obj });
-        this.currentObjectStates.set(id, { ...obj });
-
-        this.actions.push({
-            id: this.generateId(),
-            type: ActionType.CREATE,
-            objectId: id,
-            startTime: this.currentTime,
-            duration: 0
-        });
-
-        return id;
+        const obj = this.createBaseObject('LINE', { x: cx, y: cy, color: props.color, opacity: props.opacity });
+        obj.width = length;
+        obj.height = props.thickness;
+        obj.rotation = angle;
+        
+        return this.registerObject(obj);
     }
 
     addArrow(props: { p1: Vector2; p2: Vector2; thickness: number; color: string; opacity?: number }): string {
-        // Reuse line logic, just change type
         const id = this.addLine(props);
         const obj = this.initialObjects.get(id);
         if (obj) {
@@ -435,86 +370,45 @@ export class VideoContext {
         const id = this.addLine(props);
         const obj = this.initialObjects.get(id);
         const currentObj = this.currentObjectStates.get(id);
-        
-        // Default dash pattern [20px line, 20px gap]
         const dashPattern = props.dash || [20, 20];
-
-        if (obj) {
-            obj.lineDash = dashPattern;
-        }
-        if (currentObj) {
-            currentObj.lineDash = dashPattern;
-        }
-
+        if (obj) obj.lineDash = dashPattern;
+        if (currentObj) currentObj.lineDash = dashPattern;
         return id;
     }
 
     addImage(props: BaseProps & { url: string; width?: number; height?: number; scale?: number }): string {
-        const id = this.generateId();
-        const obj: VisualObject = {
-            id,
-            type: 'IMAGE',
-            x: props.x,
-            y: props.y,
-            rotation: 0,
-            scale: props.scale ?? 1,
-            opacity: props.opacity ?? 1,
-            color: 'transparent',
-            imageUrl: props.url,
-            width: props.width ?? 200, // Default width if none provided
-            height: props.height, // Optional, renderer will calc if missing
-            anchor: props.anchor || { x: 0.5, y: 0.5 },
-            shadowBlur: 0,
-            shadowColor: 'transparent',
-            backgroundColor: props.backgroundColor,
-            borderColor: props.borderColor,
-            borderWidth: props.borderWidth || 0,
-            borderRadius: props.borderRadius || 0
-        };
-        
-        this.initialObjects.set(id, { ...obj });
-        this.currentObjectStates.set(id, { ...obj });
+        const obj = this.createBaseObject('IMAGE', props);
+        obj.imageUrl = props.url;
+        obj.width = props.width ?? 200;
+        obj.height = props.height;
+        obj.scale = props.scale ?? 1;
+        return this.registerObject(obj);
+    }
 
-        this.actions.push({
-            id: this.generateId(),
-            type: ActionType.CREATE,
-            objectId: id,
-            startTime: this.currentTime,
-            duration: 0
-        });
-        return id;
+    addMatrix(props: BaseProps & { 
+        data: (string | number)[][]; 
+        fontSize?: number;
+        bracketStyle?: 'square' | 'round';
+        cellSpacing?: Vector2;
+        fontFamily?: string;
+    }): string {
+        const obj = this.createBaseObject('MATRIX', props);
+        obj.matrixData = props.data;
+        obj.fontSize = props.fontSize ?? 40;
+        obj.bracketStyle = props.bracketStyle ?? 'square';
+        obj.cellSpacing = props.cellSpacing ?? { x: 60, y: 60 };
+        obj.fontFamily = props.fontFamily;
+        return this.registerObject(obj);
     }
 
     // --- Sub-Scenes / Groups ---
     
-    // Internal use or explicit group creation
     addGroup(props: BaseProps & { scale?: number; rotation?: number }): string {
-        const id = this.generateId();
-        const obj: VisualObject = {
-            id,
-            type: 'GROUP',
-            x: props.x,
-            y: props.y,
-            rotation: props.rotation ?? 0,
-            scale: props.scale ?? 1,
-            opacity: props.opacity ?? 1,
-            color: 'transparent',
-            anchor: props.anchor || { x: 0.5, y: 0.5 },
-            shadowBlur: 0,
-            shadowColor: 'transparent'
-        };
-        
-        this.initialObjects.set(id, { ...obj });
-        this.currentObjectStates.set(id, { ...obj });
-
-        this.actions.push({
-            id: this.generateId(),
-            type: ActionType.CREATE,
-            objectId: id,
-            startTime: this.currentTime,
-            duration: 0
-        });
-        return id;
+        const obj = this.createBaseObject('GROUP', props);
+        obj.rotation = props.rotation ?? 0;
+        obj.scale = props.scale ?? 1;
+        obj.color = 'transparent';
+        return this.registerObject(obj);
     }
 
     group(objectIds: string[], props?: Partial<BaseProps>): string {
@@ -522,23 +416,23 @@ export class VideoContext {
             .map(id => this.initialObjects.get(id))
             .filter(o => !!o) as VisualObject[];
         
-        if (objects.length === 0) {
-            console.warn("No valid objects to group.");
-            return "";
-        }
+        if (objects.length === 0) return "";
 
-        let sumX = 0, sumY = 0;
+        let sumX = 0, sumY = 0, sumZ = 0;
         objects.forEach(o => {
             sumX += o.x;
             sumY += o.y;
+            sumZ += o.z;
         });
         
         const centerX = sumX / objects.length;
         const centerY = sumY / objects.length;
+        const centerZ = sumZ / objects.length;
 
         const groupId = this.addGroup({
             x: centerX,
             y: centerY,
+            z: centerZ,
             ...props
         } as any);
 
@@ -548,11 +442,13 @@ export class VideoContext {
             initialObj.parentId = groupId;
             initialObj.x -= centerX;
             initialObj.y -= centerY;
+            initialObj.z -= centerZ;
 
             if (currentObj) {
                 currentObj.parentId = groupId;
                 currentObj.x -= centerX;
                 currentObj.y -= centerY;
+                currentObj.z -= centerZ;
             }
         });
 
@@ -570,11 +466,13 @@ export class VideoContext {
 
                 initialChild.x += groupInitial.x;
                 initialChild.y += groupInitial.y;
+                initialChild.z += groupInitial.z;
                 initialChild.parentId = undefined;
 
                 if (currentChild) {
                     currentChild.x += groupInitial.x; 
                     currentChild.y += groupInitial.y;
+                    currentChild.z += groupInitial.z;
                     currentChild.parentId = undefined;
                 }
             }
@@ -585,6 +483,7 @@ export class VideoContext {
         const groupId = this.addGroup({
             x: props.x,
             y: props.y,
+            z: props.z,
             scale: props.scale,
             opacity: props.opacity,
             anchor: props.anchor
@@ -592,7 +491,6 @@ export class VideoContext {
 
         const subContext = new VideoContext();
         const result = sceneFn(subContext);
-        
         const timeline = subContext.getTimeline();
         
         timeline.objects.forEach((obj) => {
@@ -602,7 +500,6 @@ export class VideoContext {
         });
 
         const timeOffset = this.currentTime;
-        
         timeline.actions.forEach(action => {
             this.actions.push({
                 ...action,
@@ -611,9 +508,6 @@ export class VideoContext {
             });
         });
         
-        // Return a hybrid object: It has an 'id' for the group, but also merged properties from the scene function result.
-        // If T is void or null, it's just { id }.
-        // If T is { bar: '...' }, result is { id: '...', bar: '...' }.
         if (typeof result === 'object' && result !== null) {
             return { id: groupId, ...result };
         }
@@ -626,7 +520,6 @@ export class VideoContext {
         this.currentTime += duration;
     }
 
-    // Generic Update Property
     update(target: TargetId, props: Partial<VisualObject>, duration: number = 0, easing: string = 'easeInOutCubic') {
         const id = this.resolveId(target);
         const current = this.currentObjectStates.get(id);
@@ -685,34 +578,26 @@ export class VideoContext {
         this.currentTime += duration;
     }
 
-    moveTo(target: TargetId, pos: Vector2, duration: number) {
-        const id = this.resolveId(target);
-        const current = this.currentObjectStates.get(id);
-        if (!current) throw new Error(`Object ${id} not found`);
-
-        this.actions.push({
-            id: this.generateId(),
-            type: ActionType.MOVE,
-            objectId: id,
-            startTime: this.currentTime,
-            duration,
-            startValue: { x: current.x, y: current.y },
-            endValue: pos,
-            easing: 'easeInOutCubic'
-        });
-
-        current.x = pos.x;
-        current.y = pos.y;
-        this.currentTime += duration;
+    moveTo(target: TargetId, pos: {x?: number, y?: number, z?: number}, duration: number) {
+        this.update(target, pos, duration);
     }
-
-    moveBy(target: TargetId, delta: Vector2, duration: number) {
+    
+    moveBy(target: TargetId, delta: {x?: number, y?: number, z?: number}, duration: number) {
         const id = this.resolveId(target);
         const current = this.currentObjectStates.get(id);
         if (!current) throw new Error(`Object ${id} not found`);
         
-        const targetPos = { x: current.x + delta.x, y: current.y + delta.y };
-        this.moveTo(id, targetPos, duration);
+        const props: any = {};
+        if (delta.x !== undefined) props.x = current.x + delta.x;
+        if (delta.y !== undefined) props.y = current.y + delta.y;
+        if (delta.z !== undefined) props.z = current.z + delta.z;
+
+        this.update(id, props, duration);
+    }
+    
+    // Z-Depth move shortcut
+    moveZ(target: TargetId, z: number, duration: number) {
+        this.update(target, { z }, duration);
     }
 
     arc(target: TargetId, center: Vector2, angleDegrees: number, duration: number) {
@@ -754,7 +639,6 @@ export class VideoContext {
 
         const startVal = current.rotation;
         let endVal = degrees * (Math.PI / 180); 
-
         const PI2 = Math.PI * 2;
         
         if (direction === 'CW') {
@@ -785,6 +669,14 @@ export class VideoContext {
         current.rotation = endVal;
         this.currentTime += duration;
     }
+    
+    rotateX(target: TargetId, degrees: number, duration: number) {
+        this.update(target, { rotationX: degrees * (Math.PI / 180) }, duration);
+    }
+
+    rotateY(target: TargetId, degrees: number, duration: number) {
+        this.update(target, { rotationY: degrees * (Math.PI / 180) }, duration);
+    }
 
     rotateBy(target: TargetId, degrees: number, duration: number) {
         const id = this.resolveId(target);
@@ -801,7 +693,7 @@ export class VideoContext {
 
         const props: any = {};
         if (typeof val === 'number') {
-             if (current.type === 'CIRCLE') props.radius = val;
+             if (current.type === 'CIRCLE' || current.type === 'REGULAR_POLYGON') props.radius = val;
              else if (current.type === 'LINE' || current.type === 'ARROW') props.width = val;
              else if (current.type === 'IMAGE') props.width = val;
              else if (current.type === 'RECT') props.width = val;
@@ -983,6 +875,107 @@ export class VideoContext {
     }
 }
 
+// Matrix Helpers
+const createRotationMatrix = (rx: number, ry: number, rz: number): number[] => {
+    const cx = Math.cos(rx), sx = Math.sin(rx);
+    const cy = Math.cos(ry), sy = Math.sin(ry);
+    const cz = Math.cos(rz), sz = Math.sin(rz);
+
+    // Rz * Ry * Rx
+    // Rx
+    const R11=1, R12=0, R13=0;
+    const R21=0, R22=cx, R23=-sx;
+    const R31=0, R32=sx, R33=cx;
+
+    // Ry
+    const S11=cy, S12=0, S13=sy;
+    const S21=0, S22=1, S23=0;
+    const S31=-sy, S32=0, S33=cy;
+
+    // Rz
+    const T11=cz, T12=-sz, T13=0;
+    const T21=sz, T22=cz, T23=0;
+    const T31=0, T32=0, T33=1;
+
+    // M1 = Ry * Rx
+    const M1_11 = S11*R11 + S12*R21 + S13*R31;
+    const M1_12 = S11*R12 + S12*R22 + S13*R32;
+    const M1_13 = S11*R13 + S12*R23 + S13*R33;
+    
+    const M1_21 = S21*R11 + S22*R21 + S23*R31;
+    const M1_22 = S21*R12 + S22*R22 + S23*R32;
+    const M1_23 = S21*R13 + S22*R23 + S23*R33;
+
+    const M1_31 = S31*R11 + S32*R21 + S33*R31;
+    const M1_32 = S31*R12 + S32*R22 + S33*R32;
+    const M1_33 = S31*R13 + S32*R23 + S33*R33;
+
+    // M2 = Rz * M1
+    const M2_11 = T11*M1_11 + T12*M1_21 + T13*M1_31;
+    const M2_12 = T11*M1_12 + T12*M1_22 + T13*M1_32;
+    const M2_13 = T11*M1_13 + T12*M1_23 + T13*M1_33;
+
+    const M2_21 = T21*M1_11 + T22*M1_21 + T23*M1_31;
+    const M2_22 = T21*M1_12 + T22*M1_22 + T23*M1_32;
+    const M2_23 = T21*M1_13 + T22*M1_23 + T23*M1_33;
+
+    const M2_31 = T31*M1_11 + T32*M1_21 + T33*M1_31;
+    const M2_32 = T31*M1_12 + T32*M1_22 + T33*M1_32;
+    const M2_33 = T31*M1_13 + T32*M1_23 + T33*M1_33;
+
+    return [
+        M2_11, M2_12, M2_13,
+        M2_21, M2_22, M2_23,
+        M2_31, M2_32, M2_33
+    ];
+};
+
+const multiplyMatrices = (a: number[], b: number[]): number[] => {
+    const c = new Array(9).fill(0);
+    for(let row=0; row<3; row++) {
+        for(let col=0; col<3; col++) {
+            for(let k=0; k<3; k++) {
+                c[row*3+col] += a[row*3+k] * b[k*3+col];
+            }
+        }
+    }
+    return c;
+};
+
+const extractEuler = (matrix: number[]): { x: number, y: number, z: number } => {
+    // Rotation Order: Z * Y * X
+    const m11 = matrix[0], m12 = matrix[1], m13 = matrix[2];
+    const m21 = matrix[3], m22 = matrix[4], m23 = matrix[5];
+    const m31 = matrix[6], m32 = matrix[7], m33 = matrix[8];
+
+    // m31 = -sin(y)
+    let y = -Math.asin(Math.max(-1, Math.min(1, m31)));
+    let x = 0;
+    let z = 0;
+
+    if (Math.abs(m31) < 0.99999) {
+        // m32 = sin(x)cos(y), m33 = cos(x)cos(y)
+        x = Math.atan2(m32, m33);
+        // m21 = sin(z)cos(y), m11 = cos(z)cos(y)
+        z = Math.atan2(m21, m11);
+    } else {
+        // Gimbal lock
+        x = 0;
+        // m12 = -sin(z), m22 = cos(z) (dependent on sign of m31)
+        z = Math.atan2(-m12, m22);
+    }
+    
+    return { x, y, z };
+};
+
+const applyMatrixToVector = (m: number[], v: {x: number, y: number, z: number}): {x: number, y: number, z: number} => {
+    return {
+        x: m[0]*v.x + m[1]*v.y + m[2]*v.z,
+        y: m[3]*v.x + m[4]*v.y + m[5]*v.z,
+        z: m[6]*v.x + m[7]*v.y + m[8]*v.z
+    };
+};
+
 // Scene Graph Resolution Helper
 const resolveHierarchy = (objects: Map<string, VisualObject>): VisualObject[] => {
     const resolved = new Map<string, VisualObject>();
@@ -1000,30 +993,47 @@ const resolveHierarchy = (objects: Map<string, VisualObject>): VisualObject[] =>
         }
     });
 
-    const resolveNode = (id: string, parentTransform?: { x: number, y: number, scale: number, rotation: number, opacity: number }) => {
+    const resolveNode = (id: string, parentTransform?: { x: number, y: number, z: number, scale: number, rotation: number, rotationX: number, rotationY: number, opacity: number }) => {
         const obj = objects.get(id);
         if (!obj) return;
 
         const worldObj = { ...obj };
 
         if (parentTransform) {
-            const rad = parentTransform.rotation;
+            // Inherit parent scale
             const s = parentTransform.scale;
-            const cos = Math.cos(rad);
-            const sin = Math.sin(rad);
+            
+            // Local position (relative to parent center)
+            const lx = worldObj.x;
+            const ly = worldObj.y;
+            const lz = worldObj.z;
 
-            const lx = worldObj.x; 
-            const ly = worldObj.y; 
+            // Construct Parent Matrix
+            const parentMatrix = createRotationMatrix(
+                parentTransform.rotationX,
+                parentTransform.rotationY,
+                parentTransform.rotation
+            );
 
-            const rx = (lx * cos - ly * sin) * s;
-            const ry = (lx * sin + ly * cos) * s;
+            // Rotate local position by parent matrix
+            const rotatedPos = applyMatrixToVector(parentMatrix, { x: lx * s, y: ly * s, z: lz * s });
 
-            worldObj.x = parentTransform.x + rx;
-            worldObj.y = parentTransform.y + ry;
+            // Apply translation
+            worldObj.x = parentTransform.x + rotatedPos.x;
+            worldObj.y = parentTransform.y + rotatedPos.y;
+            worldObj.z = parentTransform.z + rotatedPos.z;
 
             worldObj.scale = worldObj.scale * s;
-            worldObj.rotation = worldObj.rotation + rad;
             worldObj.opacity = worldObj.opacity * parentTransform.opacity;
+
+            // Rotation Composition
+            const childMatrix = createRotationMatrix(worldObj.rotationX, worldObj.rotationY, worldObj.rotation);
+            const composedMatrix = multiplyMatrices(parentMatrix, childMatrix);
+            const newEuler = extractEuler(composedMatrix);
+
+            worldObj.rotationX = newEuler.x;
+            worldObj.rotationY = newEuler.y;
+            worldObj.rotation = newEuler.z;
         }
 
         resolved.set(id, worldObj);
@@ -1034,8 +1044,11 @@ const resolveHierarchy = (objects: Map<string, VisualObject>): VisualObject[] =>
                 resolveNode(childId, {
                     x: worldObj.x,
                     y: worldObj.y,
+                    z: worldObj.z,
                     scale: worldObj.scale,
                     rotation: worldObj.rotation,
+                    rotationX: worldObj.rotationX,
+                    rotationY: worldObj.rotationY,
                     opacity: worldObj.opacity
                 });
             });
@@ -1165,6 +1178,18 @@ export const renderSceneAtTime = (timeline: TimelineData, time: number): VisualO
                             x: s.x + (e.x - s.x) * easedT,
                             y: s.y + (e.y - s.y) * easedT
                         };
+                    } else if (key === 'points' && Array.isArray(s) && Array.isArray(e)) {
+                        // Interpolate array of vectors for Polygons
+                        // Assumes lengths match, or simply interpolates available indices
+                        const len = Math.min(s.length, e.length);
+                        const newPoints = [];
+                        for (let i=0; i<len; i++) {
+                            newPoints.push({
+                                x: s[i].x + (e[i].x - s[i].x) * easedT,
+                                y: s[i].y + (e[i].y - s[i].y) * easedT
+                            });
+                        }
+                        (obj as any)[key] = newPoints;
                     } else {
                         // Immediate switch for strings, etc.
                         (obj as any)[key] = e;
